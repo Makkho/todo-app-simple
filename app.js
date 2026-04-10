@@ -1,101 +1,109 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
-const fs = require('fs');
+const { CosmosClient } = require('@azure/cosmos');
 
 const app = express();
-const PORT = process.env.PORT || 80;
-const DATA_FILE = path.join(__dirname, 'todos.json');
+const PORT = process.env.PORT || 3000;
 
-// Middleware
+const client = new CosmosClient({
+  endpoint: process.env.COSMOS_ENDPOINT,
+  key: process.env.COSMOS_KEY
+});
+
+const databaseId = process.env.COSMOS_DATABASE || 'todo-db';
+const containerId = process.env.COSMOS_CONTAINER || 'todos';
+
+let container;
+
+async function initDb() {
+  const { database } = await client.databases.createIfNotExists({ id: databaseId });
+  const { container: c } = await database.containers.createIfNotExists({
+    id: containerId,
+    partitionKey: { paths: ["/id"] }
+  });
+  container = c;
+  console.log("Connected to Cosmos DB");
+}
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// Helper functions
-function loadTodos() {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const data = fs.readFileSync(DATA_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (err) {
-    console.error('Error loading todos:', err);
-  }
-  return [];
-}
-
-function saveTodos(todos) {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(todos, null, 2));
-  } catch (err) {
-    console.error('Error saving todos:', err);
-  }
-}
-
-// Routes
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// API Routes
-app.get('/api/todos', (req, res) => {
-  const todos = loadTodos();
-  res.json(todos);
+app.get('/api/todos', async (req, res) => {
+  try {
+    const { resources } = await container.items.readAll().fetchAll();
+    res.json(resources);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch todos' });
+  }
 });
 
-app.post('/api/todos', (req, res) => {
-  const todos = loadTodos();
-  const newTodo = {
-    id: Date.now(),
-    title: req.body.title,
-    completed: false,
-    createdAt: new Date().toISOString()
-  };
-  todos.push(newTodo);
-  saveTodos(todos);
-  res.json(newTodo);
+app.post('/api/todos', async (req, res) => {
+  try {
+    const newTodo = {
+      id: Date.now().toString(),
+      title: req.body.title,
+      completed: false,
+      createdAt: new Date().toISOString()
+    };
+
+    const { resource } = await container.items.create(newTodo);
+    res.json(resource);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create todo' });
+  }
 });
 
-app.put('/api/todos/:id', (req, res) => {
-  let todos = loadTodos();
-  const id = parseInt(req.params.id);
-  todos = todos.map(todo => {
-    if (todo.id === id) {
-      return {
-        ...todo,
-        title: req.body.title !== undefined ? req.body.title : todo.title,
-        completed: req.body.completed !== undefined ? req.body.completed : todo.completed
-      };
-    }
-    return todo;
-  });
-  saveTodos(todos);
-  const updated = todos.find(t => t.id === id);
-  res.json(updated);
+app.put('/api/todos/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const { resource: existing } = await container.item(id, id).read();
+
+    const updated = {
+      ...existing,
+      title: req.body.title ?? existing.title,
+      completed: req.body.completed ?? existing.completed
+    };
+
+    const { resource } = await container.items.upsert(updated);
+    res.json(resource);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update todo' });
+  }
 });
 
-app.delete('/api/todos/:id', (req, res) => {
-  let todos = loadTodos();
-  const id = parseInt(req.params.id);
-  todos = todos.filter(todo => todo.id !== id);
-  saveTodos(todos);
-  res.json({ success: true, message: 'Todo deleted' });
+app.delete('/api/todos/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    await container.item(id, id).delete();
+
+    res.json({ success: true, message: 'Todo deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete todo' });
+  }
 });
 
-// Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Error handling
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`TODO App running on port ${PORT}`);
-  console.log(`API docs: http://localhost:${PORT}/`);
+initDb().then(() => {
+  app.listen(PORT, () => {
+    console.log(`TODO App running on port ${PORT}`);
+  });
 });
