@@ -3,7 +3,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const { CosmosClient, PartitionKey } = require('@azure/cosmos');
-
+const { BlobServiceClient } = require('@azure/storage-blob');
 
 const app = express();
 const PORT = process.env.PORT;
@@ -93,6 +93,38 @@ app.delete('/api/todos/:id', async (req, res) => {
     console.error(err);
     if (err.code === 404) return res.status(404).json({ error: 'Todo not found' });
     res.status(500).json({ error: 'Failed to delete todo' });
+  }
+});
+
+app.get('/api/export', async (req, res) => {
+  try {
+    const { resources } = await container.items.readAll().fetchAll();
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const blobName = `todos-${timestamp}.json`;
+    const content  = JSON.stringify(resources, null, 2);
+
+    const blobServiceClient = BlobServiceClient.fromConnectionString(
+      process.env.AZURE_STORAGE_CONNECTION_STRING
+    );
+    const containerClient = blobServiceClient.getContainerClient('todoblob');
+
+    await containerClient.createIfNotExists();
+
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    await blockBlobClient.upload(content, Buffer.byteLength(content), {
+      blobHTTPHeaders: { blobContentType: 'application/json' }
+    });
+
+    res.json({
+      success:  true,
+      blobName,
+      url:      blockBlobClient.url,
+      exported: resources.length
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Export failed', details: err.message });
   }
 });
 
