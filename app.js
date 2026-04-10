@@ -1,18 +1,20 @@
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
-const { CosmosClient } = require('@azure/cosmos');
+const { CosmosClient, PartitionKey } = require('@azure/cosmos');
+
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
 const client = new CosmosClient({
   endpoint: process.env.COSMOS_ENDPOINT,
   key: process.env.COSMOS_KEY
 });
 
-const databaseId = process.env.COSMOS_DATABASE || 'todo-db';
-const containerId = process.env.COSMOS_CONTAINER || 'todos';
+const databaseId = process.env.COSMOS_DATABASE;
+const containerId = process.env.COSMOS_CONTAINER;
 
 let container;
 
@@ -20,7 +22,7 @@ async function initDb() {
   const { database } = await client.databases.createIfNotExists({ id: databaseId });
   const { container: c } = await database.containers.createIfNotExists({
     id: containerId,
-    partitionKey: { paths: ["/id"] }
+    partitionKey: { paths: ["/id"], kind: "Hash" }
   });
   container = c;
   console.log("Connected to Cosmos DB");
@@ -64,19 +66,20 @@ app.post('/api/todos', async (req, res) => {
 app.put('/api/todos/:id', async (req, res) => {
   try {
     const id = req.params.id;
-
     const { resource: existing } = await container.item(id, id).read();
-
+    if (!existing) {
+      return res.status(404).json({ error: 'Todo not found' });
+    }
     const updated = {
       ...existing,
       title: req.body.title ?? existing.title,
-      completed: req.body.completed ?? existing.completed
+      completed: req.body.completed ?? !existing.completed
     };
-
-    const { resource } = await container.items.upsert(updated);
+    const { resource } = await container.item(id, id).replace(updated);
     res.json(resource);
   } catch (err) {
     console.error(err);
+    if (err.code === 404) return res.status(404).json({ error: 'Todo not found' });
     res.status(500).json({ error: 'Failed to update todo' });
   }
 });
@@ -85,10 +88,10 @@ app.delete('/api/todos/:id', async (req, res) => {
   try {
     const id = req.params.id;
     await container.item(id, id).delete();
-
-    res.json({ success: true, message: 'Todo deleted' });
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
+    if (err.code === 404) return res.status(404).json({ error: 'Todo not found' });
     res.status(500).json({ error: 'Failed to delete todo' });
   }
 });
