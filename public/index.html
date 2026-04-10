@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TODO Application</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        #todoInput {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        #todoInput:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        #addBtn {
+            padding: 12px 25px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        #addBtn:hover {
+            background: #5568d3;
+        }
+
+        .todo-list {
+            list-style: none;
+        }
+
+        .todo-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            background: #f9f9f9;
+            transition: background 0.3s;
+        }
+
+        .todo-item:hover {
+            background: #f0f0f0;
+        }
+
+        .todo-item.completed .todo-text {
+            text-decoration: line-through;
+            color: #999;
+        }
+
+        .todo-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            margin-right: 15px;
+        }
+
+        .todo-text {
+            flex: 1;
+            color: #333;
+        }
+
+        .todo-delete {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .todo-delete:hover {
+            background: #ff5252;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+        }
+
+        .error {
+            background: #ffe0e0;
+            color: #d32f2f;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📝 TODO App</h1>
+        
+        <div class="error" id="error"></div>
+
+        <div class="input-group">
+            <input 
+                type="text" 
+                id="todoInput" 
+                placeholder="Add a new task..."
+                autocomplete="off"
+            >
+            <button id="addBtn">Add</button>
+        </div>
+
+        <ul class="todo-list" id="todoList"></ul>
+        <div class="empty-state" id="emptyState">No tasks yet. Add one to get started!</div>
+    </div>
+
+    <script>
+        const todoInput = document.getElementById('todoInput');
+        const addBtn = document.getElementById('addBtn');
+        const todoList = document.getElementById('todoList');
+        const emptyState = document.getElementById('emptyState');
+        const errorDiv = document.getElementById('error');
+
+        // Load todos on page load
+        loadTodos();
+
+        // Event listeners
+        addBtn.addEventListener('click', addTodo);
+        todoInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addTodo();
+        });
+
+        async function loadTodos() {
+            try {
+                const response = await fetch('/api/todos');
+                if (!response.ok) throw new Error('Failed to load todos');
+                const todos = await response.json();
+                renderTodos(todos);
+            } catch (err) {
+                showError('Failed to load todos');
+                console.error(err);
+            }
+        }
+
+        async function addTodo() {
+            const title = todoInput.value.trim();
+            if (!title) {
+                showError('Please enter a task');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/todos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title })
+                });
+                if (!response.ok) throw new Error('Failed to add todo');
+                todoInput.value = '';
+                loadTodos();
+            } catch (err) {
+                showError('Failed to add task');
+                console.error(err);
+            }
+        }
+
+        async function toggleTodo(id, completed) {
+            try {
+                const response = await fetch(`/api/todos/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ completed: !completed })
+                });
+                if (!response.ok) throw new Error('Failed to update todo');
+                loadTodos();
+            } catch (err) {
+                showError('Failed to update task');
+                console.error(err);
+            }
+        }
+
+        async function deleteTodo(id) {
+            try {
+                const response = await fetch(`/api/todos/${id}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error('Failed to delete todo');
+                loadTodos();
+            } catch (err) {
+                showError('Failed to delete task');
+                console.error(err);
+            }
+        }
+
+        function renderTodos(todos) {
+            todoList.innerHTML = '';
+            
+            if (todos.length === 0) {
+                emptyState.style.display = 'block';
+            } else {
+                emptyState.style.display = 'none';
+                todos.forEach(todo => {
+                    const li = document.createElement('li');
+                    li.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+                    li.innerHTML = `
+                        <input 
+                            type="checkbox" 
+                            class="todo-checkbox" 
+                            ${todo.completed ? 'checked' : ''}
+                            onchange="toggleTodo(${todo.id}, ${todo.completed})"
+                        >
+                        <span class="todo-text">${escapeHtml(todo.title)}</span>
+                        <button class="todo-delete" onclick="deleteTodo(${todo.id})">Delete</button>
+                    `;
+                    todoList.appendChild(li);
+                });
+            }
+        }
+
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 3000);
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+    </script>
+</body>
+</html>
