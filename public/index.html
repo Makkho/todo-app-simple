@@ -127,6 +127,33 @@
 
     <ul class="todo-list" id="todoList"></ul>
     <div class="empty-state" id="emptyState">No tasks yet. Add one to get started!</div>
+    
+    <hr style="margin: 30px 0;">
+
+    <div id="exportSection" style="text-align: center;">
+        <h3>📤 Export</h3>
+
+        <p id="exportStatus" style="margin: 10px 0; color: #555;">
+            Export your todos to a JSON file.
+        </p>
+
+        <button id="exportBtn" style="
+            padding: 10px 20px;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;">
+            Export Todos
+        </button>
+
+        <div style="margin-top: 15px;">
+            <a id="exportLink" href="#" target="_blank" style="display:none;">
+                Download exported file
+            </a>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -246,6 +273,31 @@
             "'": '&#039;'
         }[m]));
     }
+
+    const exportBtn = document.getElementById('exportBtn');
+const exportStatus = document.getElementById('exportStatus');
+const exportLink = document.getElementById('exportLink');
+
+exportBtn.addEventListener('click', exportTodos);
+
+async function exportTodos() {
+    exportStatus.textContent = 'Exporting... please wait';
+    exportLink.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/export');
+        if (!res.ok) throw new Error();
+
+        const data = await res.json();
+
+        exportStatus.textContent = `✅ Exported ${data.exported} todos`;
+        exportLink.href = data.url;
+        exportLink.style.display = 'inline-block';
+
+    } catch (err) {
+        exportStatus.textContent = '❌ Export failed';
+    }
+}
 </script>
 </body>
 </html>
